@@ -19,6 +19,7 @@ const db = mysql.createPool({
     database: process.env.DB_NAME
 });
 
+//Regisztráció
 app.post("/register", async (req, res) =>{
     const { username, password, email} = req.body;
 
@@ -39,6 +40,7 @@ app.post("/register", async (req, res) =>{
     }
 })
 
+//Bejelentkezés
 app.post("/login", async (req, res) =>{
     const { username, password } = req.body;
 
@@ -64,6 +66,7 @@ app.post("/login", async (req, res) =>{
     }
 });
 
+//Felhasználók lekérdezése
 app.get("/getUsers", async (req, res) =>{
     try{
         const [users] = await db.query("SELECT * FROM users");
@@ -74,6 +77,7 @@ app.get("/getUsers", async (req, res) =>{
     }
 });
 
+//Felhasználók frissítése (admin)
 app.post("/updateUsers", async (req, res) =>{
     const { id, username, email, rights } = req.body;
 
@@ -90,6 +94,42 @@ app.post("/updateUsers", async (req, res) =>{
     }
     catch(err){
         res.status(500).json({ message: "Valami hiba történt a profil szerkesztése során!" }); //Internal server error
+    }
+});
+
+//Felhasználó frissítése (átlagos user)
+app.put("/profile", async (req, res) => {
+    const { username, email, currentPassword, newPassword } = req.body;
+    const token = req.headers.authorization?.split(" ")[1];
+
+    try {
+        const decoded = jwt.verify(token, process.env.SECRET_KEY);
+        
+        const [user] = await db.query("SELECT password FROM users WHERE id = ?", [decoded.id]);
+        if (!user[0]) {
+            return res.status(404).json({ message: "Felhasználó nem található!" }); //Not found
+        }
+
+        if (newPassword) {
+            if (!currentPassword) {
+                return res.status(400).json({ message: "Add meg a jelenlegi jelszavadat!" }); //Bad request
+            }
+            
+            const isMatch = await argon2.verify(user[0].password, currentPassword);
+            if (!isMatch) {
+                return res.status(401).json({ message: "A jelenlegi jelszó helytelen!" }); //Unauthorized
+            }
+            
+            const hashedPassword = await argon2.hash(newPassword);
+            await db.query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, decoded.id]);
+        }
+
+        const [result] = await db.query("UPDATE users SET username = ?, email = ? WHERE id = ?", [username, email, decoded.id]);
+
+        res.status(200).json({ message: "Profil sikeresen frissítve!" }); //Request OK
+    } catch (err) {
+        console.error("Hiba a profil szerkesztése közben: ", err);
+        res.status(500).json({ message: "Hiba a profil frissítése közben!" }); //Internal server error
     }
 });
 
